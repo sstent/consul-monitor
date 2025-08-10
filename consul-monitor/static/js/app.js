@@ -1,9 +1,8 @@
 console.log('app.js loading...');
 
-// Define the serviceMonitor component
-function serviceMonitor() {
-    console.log('serviceMonitor function called');
-    return {
+document.addEventListener('alpine:init', () => {
+    console.log('Registering serviceMonitor with Alpine.js');
+    Alpine.data('serviceMonitor', () => ({
         services: [],
         loading: false,
         error: null,
@@ -57,18 +56,7 @@ function serviceMonitor() {
                 default: return '⚪';
             }
         }
-    };
-}
-
-// Try to register with Alpine.js with fallback to window
-try {
-    console.log('Registering with Alpine.js');
-    Alpine.data('serviceMonitor', serviceMonitor);
-    console.log('Alpine registration successful');
-} catch (error) {
-    console.error('Alpine registration failed:', error);
-    window.serviceMonitor = serviceMonitor;
-    console.log('Fallback to window registration');
-}
+    }));
+});
 
 console.log('app.js loaded');

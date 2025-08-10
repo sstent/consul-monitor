@@ -104,6 +104,10 @@ def get_services():
     
     return jsonify(response)
 
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
 @app.route('/health')
 def health_check():
     """Health check endpoint"""
