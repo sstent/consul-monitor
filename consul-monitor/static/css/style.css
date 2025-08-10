@@ -1,0 +1,113 @@
+/* Basic reset and layout */
+* { 
+    margin: 0; 
+    padding: 0; 
+    box-sizing: border-box; 
+}
+body { 
+    font-family: Arial, sans-serif; 
+    background: #f5f5f5; 
+    padding: 0;
+    margin: 0;
+}
+
+/* Header */
+.header {
+    background: white;
+    padding: 1rem 2rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+/* Alert banners */
+.error-banner, .warning-banner {
+    padding: 0.75rem 2rem;
+    margin: 0;
+    font-weight: bold;
+}
+.error-banner { 
+    background: #fee; 
+    color: #c33; 
+}
+.warning-banner { 
+    background: #fff3cd; 
+    color: #856404; 
+}
+
+/* Services table */
+.services-container { 
+    padding: 2rem; 
+}
+.services-table {
+    width: 100%;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border-collapse: collapse;
+    overflow: hidden;
+}
+.services-table th, .services-table td {
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+.services-table th { 
+    background: #f8f9fa; 
+    font-weight: bold; 
+}
+
+/* Status indicators */
+.status-icon { 
+    font-size: 1.2rem; 
+    display: inline-block;
+    width: 24px;
+    text-align: center;
+}
+.status-passing { color: #28a745; }
+.status-warning { color: #ffc107; }
+.status-critical { color: #dc3545; }
+.status-unknown { color: #6c757d; }
+
+/* Tags */
+.tag {
+    display: inline-block;
+    background: #e9ecef;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    margin-right: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+/* Buttons */
+button {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+}
+button:hover { background: #0056b3; }
+button:disabled { 
+    background: #6c757d; 
+    cursor: not-allowed; 
+    opacity: 0.7;
+}
+
+/* No services message */
+.no-services {
+    padding: 2rem;
+    text-align: center;
+    background: white;
+    border-radius: 8px;
+    margin-top: 1rem;
+    font-style: italic;
+    color: #6c757d;
+}

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Consul Service Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+</head>
+<body x-data="serviceMonitor">
+    <div class="header">
+        <h1>Consul Service Monitor</h1>
+        <div class="controls">
+            <button @click="refreshServices" :disabled="loading">
+                <span x-show="!loading">🔄 Refresh</span>
+                <span x-show="loading">Loading...</span>
+            </button>
+        </div>
+    </div>
+    
+    <div x-show="error" class="error-banner" x-text="error"></div>
+    <div x-show="!consulAvailable" class="warning-banner">
+        ⚠️ Consul connection failed - showing cached data
+    </div>
+    
+    <div class="services-container">
+        <table class="services-table">
+            <thead>
+                <tr>
+                    <th>Service Name</th>
+                    <th>Status</th> 
+                    <th>URL</th>
+                    <th>Tags</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="service in services" :key="service.id">
+                    <tr>
+                        <td x-text="service.name"></td>
+                        <td>
+                            <span class="status-icon" 
+                                  :class="getStatusClass(service.current_status)"
+                                  x-text="getStatusEmoji(service.current_status)">
+                            </span>
+                        </td>
+                        <td>
+                            <a :href="service.url" target="_blank" x-text="service.url"></a>
+                        </td>
+                        <td>
+                            <template x-for="tag in service.tags">
+                                <span class="tag" x-text="tag"></span>
+                            </template>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+        
+        <div x-show="services.length === 0 && !loading" class="no-services">
+            No services found
+        </div>
+    </div>
+</body>
+</html>
