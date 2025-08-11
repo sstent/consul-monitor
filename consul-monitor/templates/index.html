@@ -53,35 +53,45 @@
                 <thead>
                     <tr>
                         <th>Service Name</th>
-                        <th>Status</th> 
-                        <th>URL</th>
-                        <th>Tags</th>
-                        <th>24h History</th>
+                        <th>Health</th>
+                        <th>Instances</th>
+                        <th>History</th>
+                        <th>Details</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <template x-for="service in services" :key="service.id">
-                        <tr>
+                    <template x-for="service in services" :key="service.name">
+                        <tr class="service-row">
                             <td x-text="service.name"></td>
                             <td>
                                 <span class="status-icon" 
-                                      :class="getStatusClass(service.current_status)"
-                                      x-text="getStatusEmoji(service.current_status)">
+                                      :class="getStatusClass(service.composite_status)"
+                                      x-text="getStatusEmoji(service.composite_status)">
                                 </span>
                             </td>
+                            <td x-text="service.instances.length"></td>
                             <td>
-                                <a :href="service.url" target="_blank" x-text="service.url"></a>
-                            </td>
-                            <td>
-                                <template x-for="tag in service.tags">
-                                    <span class="tag" x-text="tag"></span>
-                                </template>
-                            </td>
-                            <td>
-                                <div class="chart-container">
-                                    <canvas :id="'chart-' + service.id" 
-                                            width="200" height="50"></canvas>
+                                <div class="history-chart-container">
+                                    <canvas :id="'chart-'+service.name"></canvas>
                                 </div>
+                            </td>
+                            <td>
+<div class="instance-details">
+    <template x-for="(instance, index) in service.instances" 
+              :key="`${service.name}-${instance.address}-${index}`">
+        <div class="instance">
+            <span class="status-icon" 
+                  :class="getStatusClass(instance.current_status)"
+                  x-text="getStatusEmoji(instance.current_status) + ' '">
+            </span>
+            <span x-text="instance.address || 'Unknown address'"></span>
+            <template x-if="instance.port">
+                <span>:<span x-text="instance.port"></span></span>
+            </template>
+            <a :href="instance.url" target="_blank" x-show="instance.url">🔗</a>
+        </div>
+    </template>
+</div>
                             </td>
                         </tr>
                     </template>
@@ -94,12 +104,14 @@
         </div>
     </div>
 
-    <!-- Load Alpine.js and Chart.js -->
+    <!-- Load Alpine.js -->
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <!-- Load Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         document.addEventListener('alpine:init', () => {
             Alpine.data('serviceMonitor', () => ({
+                charts: {}, // Store Chart.js instances by service name
                 services: [],
                 loading: false,
                 error: null,
@@ -116,7 +128,6 @@
                     }
                 },
                 autoRefreshTimer: null,
-                charts: {},
                 
                 async init() {
                     await this.loadConfig();
@@ -141,26 +152,16 @@
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify(this.config)
                         });
-                        
-                        // Restart auto-refresh with new interval
                         this.startAutoRefresh();
-                        
-                        // Refresh charts if granularity changed
-                        this.loadHistoryCharts();
-                        
                     } catch (err) {
                         console.error('Failed to update config:', err);
                     }
                 },
                 
                 startAutoRefresh() {
-                    // Clear existing timer
                     if (this.autoRefreshTimer) {
                         clearInterval(this.autoRefreshTimer);
-                        this.autoRefreshTimer = null;
                     }
-                    
-                    // Start new timer if enabled
                     if (this.config.autoRefresh.enabled) {
                         this.autoRefreshTimer = setInterval(
                             () => this.refreshServices(),
@@ -177,18 +178,34 @@
                         const response = await fetch('/api/services');
                         const data = await response.json();
                         
-                        if (data.status === 'success') {
-                            this.services = data.services;
-                            this.consulAvailable = data.consul_available;
-                            
-                            // Load history charts after services update
-                            this.$nextTick(() => this.loadHistoryCharts());
-                            
-                        } else {
-                            this.error = data.error || 'Failed to fetch services';
-                            this.services = data.services || [];
-                            this.consulAvailable = data.consul_available;
-                        }
+if (data.status === 'success') {
+    // Add default values for instance properties
+    this.services = data.services.map(service => ({
+        ...service,
+        instances: service.instances.map(instance => ({
+            address: instance.address || 'Unknown address',
+            port: instance.port || null,
+            url: instance.url || '',
+            current_status: instance.current_status || 'unknown'
+        }))
+    }));
+                    this.consulAvailable = data.consul_available;
+    
+                    // Destroy existing charts
+                    Object.values(this.charts).forEach(chart => chart.destroy());
+                    this.charts = {};
+    
+                    // Initialize charts after rendering
+                    this.$nextTick(() => {
+                        this.services.forEach(service => {
+                            this.loadHistoryChart(service.name);
+                        });
+                    });
+} else {
+    this.error = data.error || 'Failed to fetch services';
+    this.services = data.services || [];
+    this.consulAvailable = data.consul_available;
+}
                     } catch (err) {
                         this.error = 'Network error: ' + err.message;
                         this.services = [];
@@ -198,80 +215,67 @@
                     }
                 },
                 
-                async loadHistoryCharts() {
-                    for (const service of this.services) {
-                        await this.createChart(service.id);
+                async loadHistoryChart(serviceName) {
+                    // Destroy existing chart if present
+                    if (this.charts[serviceName]) {
+                        this.charts[serviceName].destroy();
+                        delete this.charts[serviceName];
                     }
-                },
-                
-                async createChart(serviceId) {
+                    
                     try {
-                        const response = await fetch(`/api/services/${serviceId}/history?granularity=${this.config.display.historyGranularity}`);
-                        const data = await response.json();
+                        // Get granularity from config
+                        const granularity = this.config.display.historyGranularity;
                         
-                        const canvas = document.getElementById(`chart-${serviceId}`);
-                        if (!canvas) return;
+                        // Use correct endpoint with query parameter
+                        const response = await fetch(`/api/services/${serviceName}/history?granularity=${granularity}`);
                         
-                        // Destroy existing chart
-                        if (this.charts[serviceId]) {
-                            this.charts[serviceId].destroy();
+                        // Check for HTTP errors
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
                         }
                         
-                        const ctx = canvas.getContext('2d');
+                        const historyData = await response.json();
                         
-                        this.charts[serviceId] = new Chart(ctx, {
-                            type: 'bar',
+                        // Process data for Chart.js
+                        const timestamps = historyData.data.map(item => item.timestamp);
+                        const values = historyData.data.map(item => {
+                            // Calculate composite health score: 
+                            // passing=1.0, warning=0.5, critical=0.0
+                            return (item.passing + item.warning * 0.5) / 100;
+                        });
+                        
+                        const ctx = document.getElementById(`chart-${serviceName}`);
+                        if (!ctx) return;
+                        
+                        // Create and store new chart
+                        this.charts[serviceName] = new Chart(ctx, {
+                            type: 'line',
                             data: {
-                                labels: data.data.map(d => new Date(d.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})),
-                                datasets: [
-                                    {
-                                        label: 'Passing',
-                                        data: data.data.map(d => d.passing),
-                                        backgroundColor: '#28a745',
-                                        stack: 'health'
-                                    },
-                                    {
-                                        label: 'Warning', 
-                                        data: data.data.map(d => d.warning),
-                                        backgroundColor: '#ffc107',
-                                        stack: 'health'
-                                    },
-                                    {
-                                        label: 'Critical',
-                                        data: data.data.map(d => d.critical),
-                                        backgroundColor: '#dc3545',
-                                        stack: 'health'
-                                    }
-                                ]
+                                labels: timestamps,
+                                datasets: [{
+                                    label: 'Health Score',
+                                    data: values,
+                                    borderColor: 'rgb(75, 192, 192)',
+                                    tension: 0.1,
+                                    fill: false
+                                }]
                             },
                             options: {
-                                responsive: false,
+                                responsive: true,
                                 maintainAspectRatio: false,
                                 plugins: {
-                                    legend: { display: false },
-                                    tooltip: {
-                                        callbacks: {
-                                            title: function(context) {
-                                                return new Date(data.data[context[0].dataIndex].timestamp).toLocaleString();
-                                            },
-                                            label: function(context) {
-                                                return context.dataset.label + ': ' + context.parsed.y + '%';
-                                            }
-                                        }
-                                    }
+                                    legend: { display: false }
                                 },
                                 scales: {
-                                    x: { display: false },
-                                    y: { 
-                                        display: false,
-                                        max: 100,
-                                        stacked: true
+                                    y: {
+                                        min: 0,
+                                        max: 1
                                     }
                                 }
                             }
                         });
-                    } catch (err) {
-                        console.error(`Failed to load chart for service ${serviceId}:`, err);
+                    } catch (error) {
+                        console.error(`Error loading history for ${serviceName}:`, error);
                     }
                 },
                 
@@ -280,25 +284,43 @@
                     return `${seconds / 60}m`;
                 },
                 
-                getStatusClass(status) {
-                    return {
-                        'status-passing': status === 'passing',
-                        'status-warning': status === 'warning', 
-                        'status-critical': status === 'critical',
-                        'status-unknown': !status || status === 'unknown'
-                    };
-                },
-                
-                getStatusEmoji(status) {
-                    switch(status) {
-                        case 'passing': return '🟢';
-                        case 'warning': return '🟡';
-                        case 'critical': return '🔴';
-                        default: return '⚪';
-                    }
-                }
+getStatusClass(status) {
+    const safeStatus = status || 'unknown';
+    return {
+        'status-passing': safeStatus === 'passing',
+        'status-warning': safeStatus === 'warning', 
+        'status-critical': safeStatus === 'critical',
+        'status-unknown': safeStatus === 'unknown'
+    };
+},
+
+getStatusEmoji(status) {
+    const safeStatus = status || 'unknown';
+    switch(safeStatus) {
+        case 'passing': return '🟢';
+        case 'warning': return '🟡';
+        case 'critical': return '🔴';
+        default: return '⚪';
+    }
+}
             }));
         });
     </script>
+    <style>
+        .instance-details {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .instance {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .history-chart-container {
+            height: 60px;
+            width: 200px;
+        }
+    </style>
 </body>
 </html>

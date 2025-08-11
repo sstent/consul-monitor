@@ -43,18 +43,23 @@ def index():
     # Get thread-local database connection
     db_conn = get_db()
     
-    # Get initial service data
-    services = database.get_all_services_with_health(db_conn)
-    consul_available = consul_client.is_consul_available()
-    
-    # Generate URLs for services
-    for service in services:
-        if service['port']:
-            service['url'] = f"http://{service['name']}.service.dc1.consul:{service['port']}"
-        else:
-            service['url'] = None
-            
-    return render_template('index.html', services=services, consul_available=consul_available)
+    try:
+        # Get services grouped by name
+        services = database.get_all_services_grouped(db_conn)
+        consul_available = consul_client.is_consul_available()
+        
+        # Generate URLs for each instance in each service
+        for service in services:
+            for instance in service['instances']:
+                if instance['port']:
+                    instance['url'] = f"http://{service['name']}.service.dc1.consul:{instance['port']}"
+                else:
+                    instance['url'] = None
+                    
+        return render_template('index.html', services=services, consul_available=consul_available)
+    except Exception as e:
+        # Fallback in case of errors
+        return render_template('index.html', services=[], consul_available=False, error=str(e))
 
 @app.route('/api/services')
 def get_services():
@@ -63,16 +68,17 @@ def get_services():
     db_conn = get_db()
     
     try:
-        # Always use database data since background polling updates it
-        services = database.get_all_services_with_health(db_conn)
+        # Get services grouped by name
+        services = database.get_all_services_grouped(db_conn)
         consul_available = consul_client.is_consul_available()
         
-        # Generate URLs for services
+        # Generate URLs for each instance in each service
         for service in services:
-            if service['port']:
-                service['url'] = f"http://{service['name']}.service.dc1.consul:{service['port']}"
-            else:
-                service['url'] = None
+            for instance in service['instances']:
+                if instance['port']:
+                    instance['url'] = f"http://{service['name']}.service.dc1.consul:{instance['port']}"
+                else:
+                    instance['url'] = None
         
         response = {
             'status': 'success',
@@ -134,8 +140,8 @@ def update_config():
     session.permanent = True
     return jsonify({'status': 'success'})
 
-@app.route('/api/services/<service_id>/history')
-def get_service_history(service_id):
+@app.route('/api/services/<service_name>/history')
+def get_service_history(service_name):
     """Get historical health data for charts"""
     # Get thread-local database connection
     db_conn = get_db()
@@ -144,15 +150,19 @@ def get_service_history(service_id):
     granularity = int(request.args.get('granularity', 
                      session.get('history_granularity', 15)))
     
+    # Get instance address from query params
+    instance_address = request.args.get('instance', '')
+    
     try:
         # Get raw history data (24 hours)
-        history = database.get_service_history(db_conn, service_id, 24)
+        history = database.get_service_history(db_conn, service_name, instance_address, 24)
         
         # Aggregate data by granularity for Chart.js
         chart_data = aggregate_health_data(history, granularity)
         
         return jsonify({
-            'service_id': service_id,
+            'service_name': service_name,
+            'instance_address': instance_address,
             'granularity': granularity,
             'data': chart_data
         })
@@ -160,7 +170,8 @@ def get_service_history(service_id):
     except Exception as e:
         return jsonify({
             'error': str(e),
-            'service_id': service_id,
+            'service_name': service_name,
+            'instance_address': instance_address,
             'data': []
         }), 500
 

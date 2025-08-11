@@ -61,8 +61,14 @@ class ConsulPoller:
                 logger.warning("Consul unavailable during background poll")
                 return
             
-            # Get fresh data from Consul
-            service_data = consul_client.fetch_all_service_data()
+            # Get fresh data from Consul (now returns services and instances)
+            consul_data = consul_client.fetch_all_service_data()
+            if not consul_data:
+                logger.warning("No data received from Consul")
+                return
+                
+            service_data = consul_data['services']
+            instances = consul_data['instances']
             
             if not service_data:
                 logger.warning("No service data received from Consul")
@@ -80,26 +86,28 @@ class ConsulPoller:
             services_updated = 0
             health_checks_inserted = 0
             
-            for service_id, data in service_data.items():
-                # Upsert service
-                database.upsert_service(conn, {
-                    'id': service_id,
-                    'name': data['name'],
-                    'address': data['address'],
-                    'port': data['port'],
-                    'tags': data['tags'],
-                    'meta': data['meta']
-                })
-                services_updated += 1
+            # Process instances
+            for address, instance in instances.items():
+                # Upsert instance with composite health
+                database.upsert_instance(conn, address, instance['health_status'])
                 
-                # Insert health checks - raw data points every minute
-                for check in data['health_checks']:
-                    database.insert_health_check(
-                        conn, service_id, 
-                        check['check_name'], 
-                        check['status']
-                    )
-                    health_checks_inserted += 1
+                # Record instance health
+                database.insert_instance_health(conn, address, instance['health_status'])
+                
+                # Process services in this instance
+                for service in instance['services']:
+                    # Upsert service with instance address
+                    database.upsert_service(conn, service, address)
+                    services_updated += 1
+                    
+                    # Insert health checks
+                    for check in service['health_checks']:
+                        database.insert_health_check(
+                            conn, service['id'], 
+                            check['check_name'], 
+                            check['status']
+                        )
+                        health_checks_inserted += 1
             
             conn.close()
             

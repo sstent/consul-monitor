@@ -50,8 +50,38 @@ def is_consul_available():
     except requests.exceptions.RequestException:
         return False
 
+def calculate_composite_health(services):
+    """Calculate overall health status for a group of services"""
+    status_priority = {'critical': 3, 'warning': 2, 'passing': 1}
+    worst_status = 'passing'
+    
+    for service in services:
+        for check in service['health_checks']:
+            if status_priority[check['status']] > status_priority[worst_status]:
+                worst_status = check['status']
+    return worst_status
+
+def group_services_by_instance(services):
+    """Group services by their instance address"""
+    instances = {}
+    for service in services.values():
+        address = service['address']
+        if address not in instances:
+            instances[address] = {
+                'address': address,
+                'services': [],
+                'health_status': 'passing'
+            }
+        instances[address]['services'].append(service)
+    
+    # Calculate composite health for each instance
+    for instance in instances.values():
+        instance['health_status'] = calculate_composite_health(instance['services'])
+    
+    return instances
+
 def fetch_all_service_data():
-    """Fetch service data and health status for all services"""
+    """Fetch service data and health status for all services, grouped by instance"""
     try:
         services = get_consul_services()
         service_data = {}
@@ -76,7 +106,11 @@ def fetch_all_service_data():
                 'health_checks': health_checks
             }
         
-        return service_data
+        # Return both individual services and grouped instances
+        return {
+            'services': service_data,
+            'instances': group_services_by_instance(service_data)
+        }
     except requests.exceptions.RequestException:
         logger.error("Failed to fetch service data from Consul")
         return {}
