@@ -44,8 +44,10 @@ def create_tables(conn):
     conn.commit()
 
 def init_database():
-    """Initialize database and return connection"""
-    return sqlite3.connect('file:consul-monitor.db?mode=memory&cache=shared', uri=True)
+    """Initialize database, create tables, and return connection"""
+    conn = sqlite3.connect('/data/consul-monitor.db')
+    create_tables(conn)
+    return conn
 
 def upsert_service(conn, service_data):
     cursor = conn.cursor()

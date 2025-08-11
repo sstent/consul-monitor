@@ -6,12 +6,24 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install SQLite for debugging
+RUN apt-get update && apt-get install -y sqlite3
+
 # Copy application
 COPY . .
 
-# Create non-root user
-RUN useradd -m appuser && chown -R appuser:appuser /app
+# Create non-root user and ensure data directory exists
+RUN mkdir -p /data && \
+    useradd -m appuser && \
+    chown -R appuser:appuser /app /data
+
 USER appuser
+
+# Set working directory to application code
+WORKDIR /app
+
+# Create data directory for database
+RUN mkdir -p /data && chown appuser:appuser /data
 
 # Expose port
 EXPOSE 5000

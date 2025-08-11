@@ -13,7 +13,6 @@ def get_db():
     """Get a thread-local database connection"""
     if 'db_conn' not in g:
         g.db_conn = database.init_database()
-        database.create_tables(g.db_conn)
     return g.db_conn
 
 @app.teardown_appcontext
@@ -221,6 +220,30 @@ def aggregate_health_data(raw_history, granularity_minutes):
         })
     
     return chart_data
+
+@app.route('/api/debug/db')
+def debug_db():
+    """Debug endpoint to inspect database contents"""
+    db_conn = get_db()
+    cursor = db_conn.cursor()
+    
+    # Get services
+    cursor.execute("SELECT * FROM services")
+    services = cursor.fetchall()
+    services = [dict(id=row[0], name=row[1], address=row[2], port=row[3], 
+                    tags=json.loads(row[4]), meta=json.loads(row[5]),
+                    first_seen=row[6], last_seen=row[7]) for row in services]
+    
+    # Get health checks
+    cursor.execute("SELECT * FROM health_checks")
+    health_checks = cursor.fetchall()
+    health_checks = [dict(id=row[0], service_id=row[1], check_name=row[2],
+                         status=row[3], timestamp=row[4]) for row in health_checks]
+    
+    return jsonify({
+        'services': services,
+        'health_checks': health_checks
+    })
 
 @app.route('/health')
 def health_check():

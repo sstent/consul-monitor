@@ -67,6 +67,11 @@ class ConsulPoller:
             if not service_data:
                 logger.warning("No service data received from Consul")
                 return
+                
+            # Detailed logging of service data
+            logger.info(f"Received {len(service_data)} services from Consul")
+            for service_id, data in list(service_data.items())[:5]:  # Log first 5 services
+                logger.info(f"Service: {service_id}, Name: {data['name']}, Checks: {len(data['health_checks'])}")
             
             # Get database connection
             conn = self.get_db_conn()
