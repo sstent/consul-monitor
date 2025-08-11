@@ -9,6 +9,33 @@
         <div class="header">
             <h1>Consul Service Monitor</h1>
             <div class="controls">
+                <!-- Auto-refresh controls -->
+                <div class="control-group">
+                    <label class="toggle">
+                        <input type="checkbox" x-model="config.autoRefresh.enabled" 
+                               @change="updateConfig()">
+                        <span class="toggle-slider"></span>
+                        Auto-refresh
+                    </label>
+                    <select x-model="config.autoRefresh.interval" @change="updateConfig()"
+                            :disabled="!config.autoRefresh.enabled">
+                        <template x-for="option in config.autoRefresh.options" :key="option">
+                            <option :value="option" x-text="formatInterval(option)"></option>
+                        </template>
+                    </select>
+                </div>
+                
+                <!-- History granularity -->
+                <div class="control-group">
+                    <label>History:</label>
+                    <select x-model="config.display.historyGranularity" @change="updateConfig()">
+                        <template x-for="option in config.display.granularityOptions" :key="option">
+                            <option :value="option" x-text="option + 'm'"></option>
+                        </template>
+                    </select>
+                </div>
+                
+                <!-- Manual refresh -->
                 <button @click="refreshServices" :disabled="loading">
                     <span x-show="!loading">🔄 Refresh</span>
                     <span x-show="loading">Loading...</span>
@@ -29,6 +56,7 @@
                         <th>Status</th> 
                         <th>URL</th>
                         <th>Tags</th>
+                        <th>24h History</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -49,6 +77,12 @@
                                     <span class="tag" x-text="tag"></span>
                                 </template>
                             </td>
+                            <td>
+                                <div class="chart-container">
+                                    <canvas :id="'chart-' + service.id" 
+                                            width="200" height="50"></canvas>
+                                </div>
+                            </td>
                         </tr>
                     </template>
                 </tbody>
@@ -60,8 +94,9 @@
         </div>
     </div>
 
-    <!-- Load Alpine.js and define component inline -->
+    <!-- Load Alpine.js and Chart.js -->
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         document.addEventListener('alpine:init', () => {
             Alpine.data('serviceMonitor', () => ({
@@ -69,14 +104,72 @@
                 loading: false,
                 error: null,
                 consulAvailable: true,
+                config: {
+                    autoRefresh: {
+                        enabled: false,
+                        interval: 60,
+                        options: [30, 60, 120, 300, 600]
+                    },
+                    display: {
+                        historyGranularity: 15,
+                        granularityOptions: [5, 15, 30, 60]
+                    }
+                },
+                autoRefreshTimer: null,
+                charts: {},
                 
-                init() {
-                    console.log('Initializing serviceMonitor component');
-                    this.refreshServices();
+                async init() {
+                    await this.loadConfig();
+                    await this.refreshServices();
+                    this.startAutoRefresh();
+                },
+                
+                async loadConfig() {
+                    try {
+                        const response = await fetch('/api/config');
+                        const data = await response.json();
+                        this.config = data;
+                    } catch (err) {
+                        console.error('Failed to load config:', err);
+                    }
+                },
+                
+                async updateConfig() {
+                    try {
+                        await fetch('/api/config', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(this.config)
+                        });
+                        
+                        // Restart auto-refresh with new interval
+                        this.startAutoRefresh();
+                        
+                        // Refresh charts if granularity changed
+                        this.loadHistoryCharts();
+                        
+                    } catch (err) {
+                        console.error('Failed to update config:', err);
+                    }
+                },
+                
+                startAutoRefresh() {
+                    // Clear existing timer
+                    if (this.autoRefreshTimer) {
+                        clearInterval(this.autoRefreshTimer);
+                        this.autoRefreshTimer = null;
+                    }
+                    
+                    // Start new timer if enabled
+                    if (this.config.autoRefresh.enabled) {
+                        this.autoRefreshTimer = setInterval(
+                            () => this.refreshServices(),
+                            this.config.autoRefresh.interval * 1000
+                        );
+                    }
                 },
                 
                 async refreshServices() {
-                    console.log('Refreshing services');
                     this.loading = true;
                     this.error = null;
                     
@@ -87,7 +180,10 @@
                         if (data.status === 'success') {
                             this.services = data.services;
                             this.consulAvailable = data.consul_available;
-                            console.log('Services loaded:', this.services.length);
+                            
+                            // Load history charts after services update
+                            this.$nextTick(() => this.loadHistoryCharts());
+                            
                         } else {
                             this.error = data.error || 'Failed to fetch services';
                             this.services = data.services || [];
@@ -97,10 +193,91 @@
                         this.error = 'Network error: ' + err.message;
                         this.services = [];
                         this.consulAvailable = false;
-                        console.error('Error fetching services:', err);
                     } finally {
                         this.loading = false;
                     }
+                },
+                
+                async loadHistoryCharts() {
+                    for (const service of this.services) {
+                        await this.createChart(service.id);
+                    }
+                },
+                
+                async createChart(serviceId) {
+                    try {
+                        const response = await fetch(`/api/services/${serviceId}/history?granularity=${this.config.display.historyGranularity}`);
+                        const data = await response.json();
+                        
+                        const canvas = document.getElementById(`chart-${serviceId}`);
+                        if (!canvas) return;
+                        
+                        // Destroy existing chart
+                        if (this.charts[serviceId]) {
+                            this.charts[serviceId].destroy();
+                        }
+                        
+                        const ctx = canvas.getContext('2d');
+                        
+                        this.charts[serviceId] = new Chart(ctx, {
+                            type: 'bar',
+                            data: {
+                                labels: data.data.map(d => new Date(d.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})),
+                                datasets: [
+                                    {
+                                        label: 'Passing',
+                                        data: data.data.map(d => d.passing),
+                                        backgroundColor: '#28a745',
+                                        stack: 'health'
+                                    },
+                                    {
+                                        label: 'Warning', 
+                                        data: data.data.map(d => d.warning),
+                                        backgroundColor: '#ffc107',
+                                        stack: 'health'
+                                    },
+                                    {
+                                        label: 'Critical',
+                                        data: data.data.map(d => d.critical),
+                                        backgroundColor: '#dc3545',
+                                        stack: 'health'
+                                    }
+                                ]
+                            },
+                            options: {
+                                responsive: false,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        callbacks: {
+                                            title: function(context) {
+                                                return new Date(data.data[context[0].dataIndex].timestamp).toLocaleString();
+                                            },
+                                            label: function(context) {
+                                                return context.dataset.label + ': ' + context.parsed.y + '%';
+                                            }
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    x: { display: false },
+                                    y: { 
+                                        display: false,
+                                        max: 100,
+                                        stacked: true
+                                    }
+                                }
+                            }
+                        });
+                    } catch (err) {
+                        console.error(`Failed to load chart for service ${serviceId}:`, err);
+                    }
+                },
+                
+                formatInterval(seconds) {
+                    if (seconds < 60) return `${seconds}s`;
+                    return `${seconds / 60}m`;
                 },
                 
                 getStatusClass(status) {

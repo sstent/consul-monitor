@@ -109,9 +109,23 @@ def get_service_history(conn, service_id, hours=24):
         FROM health_checks
         WHERE service_id = ? 
           AND timestamp >= datetime('now', ?)
-        ORDER BY timestamp
+        ORDER BY timestamp ASC
     ''', (service_id, f'-{hours} hours'))
     return cursor.fetchall()
+
+def get_service_history_detailed(conn, service_id, hours=24):
+    """Get detailed service history with proper timestamp handling"""
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT status, timestamp
+        FROM health_checks
+        WHERE service_id = ? 
+          AND timestamp >= datetime('now', ?)
+        ORDER BY timestamp ASC
+    ''', (service_id, f'-{hours} hours'))
+    
+    results = cursor.fetchall()
+    return [(status, timestamp) for status, timestamp in results]
 
 def is_database_available(conn):
     try:
