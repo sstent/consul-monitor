@@ -176,17 +176,32 @@ def get_all_services_grouped(conn):
         services.append(service)
     return services
 
-def get_service_history(conn, service_name, instance_address, hours=24):
+def get_service_history(conn, service_name, instance_address='', hours=24):
+    """Get service history by service name with optional instance filtering"""
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT hc.status, hc.timestamp
-        FROM health_checks hc
-        JOIN services s ON hc.service_id = s.id
-        WHERE s.name = ? 
-          AND s.address = ?
-          AND hc.timestamp >= datetime('now', ?)
-        ORDER BY hc.timestamp ASC
-    ''', (service_name, instance_address, f'-{hours} hours'))
+    
+    if instance_address:
+        # Get history for specific service instance
+        cursor.execute('''
+            SELECT hc.status, hc.timestamp
+            FROM health_checks hc
+            JOIN services s ON hc.service_id = s.id
+            WHERE s.name = ? 
+              AND s.address = ?
+              AND hc.timestamp >= datetime('now', ?)
+            ORDER BY hc.timestamp ASC
+        ''', (service_name, instance_address, f'-{hours} hours'))
+    else:
+        # Get history for all instances of the service
+        cursor.execute('''
+            SELECT hc.status, hc.timestamp
+            FROM health_checks hc
+            JOIN services s ON hc.service_id = s.id
+            WHERE s.name = ? 
+              AND hc.timestamp >= datetime('now', ?)
+            ORDER BY hc.timestamp ASC
+        ''', (service_name, f'-{hours} hours'))
+    
     return cursor.fetchall()
 
 def get_service_history_detailed(conn, service_id, hours=24):

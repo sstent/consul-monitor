@@ -50,6 +50,19 @@ def index():
         
         # Generate URLs for each instance in each service
         for service in services:
+            # Create a set of unique ports for this service
+            unique_ports = set()
+            for instance in service['instances']:
+                if instance['port']:
+                    unique_ports.add(instance['port'])
+            
+            # Create port-based URLs
+            service['port_urls'] = [
+                f"http://{service['name']}.service.dc1.consul:{port}"
+                for port in unique_ports
+            ]
+            
+            # Keep instance URLs for other display purposes
             for instance in service['instances']:
                 if instance['port']:
                     instance['url'] = f"http://{service['name']}.service.dc1.consul:{instance['port']}"
@@ -73,12 +86,22 @@ def get_services():
         consul_available = consul_client.is_consul_available()
         
         # Generate URLs for each instance in each service
+        # Generate URLs for each service and its instances
         for service in services:
+            # Create a set of unique ports for port-based URLs
+            unique_ports = set()
             for instance in service['instances']:
                 if instance['port']:
+                    unique_ports.add(instance['port'])
                     instance['url'] = f"http://{service['name']}.service.dc1.consul:{instance['port']}"
                 else:
                     instance['url'] = None
+            
+            # Add port-based URLs to service object
+            service['port_urls'] = [
+                f"http://{service['name']}.service.dc1.consul:{port}"
+                for port in unique_ports
+            ]
         
         response = {
             'status': 'success',
@@ -275,6 +298,13 @@ def health_check():
         'polling': 'active' if polling_active else 'inactive',
         'timestamp': datetime.utcnow().isoformat()
     })
+
+# Log 404 errors
+@app.after_request
+def log_404(response):
+    if response.status_code == 404:
+        app.logger.warning(f"404 for {request.path} from {request.remote_addr}")
+    return response
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

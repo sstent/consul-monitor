@@ -11,14 +11,14 @@
             <div class="controls">
                 <!-- Auto-refresh controls -->
                 <div class="control-group">
-                    <label class="toggle">
-                        <input type="checkbox" x-model="config.autoRefresh.enabled" 
-                               @change="updateConfig()">
-                        <span class="toggle-slider"></span>
-                        Auto-refresh
-                    </label>
+        <label class="toggle" title="Enable/disable automatic background refreshing">
+            <input type="checkbox" x-model="config.autoRefresh.enabled" 
+                   @change="updateConfig()">
+            <span class="toggle-slider"></span>
+            Auto-refresh
+        </label>
                     <select x-model="config.autoRefresh.interval" @change="updateConfig()"
-                            :disabled="!config.autoRefresh.enabled">
+                            :disabled="!config.autoRefresh.enabled" title="Set refresh frequency (30-600 seconds)">
                         <template x-for="option in config.autoRefresh.options" :key="option">
                             <option :value="option" x-text="formatInterval(option)"></option>
                         </template>
@@ -28,7 +28,8 @@
                 <!-- History granularity -->
                 <div class="control-group">
                     <label>History:</label>
-                    <select x-model="config.display.historyGranularity" @change="updateConfig()">
+                    <select x-model="config.display.historyGranularity" @change="updateConfig()" 
+                            title="Set time resolution for historical health data">
                         <template x-for="option in config.display.granularityOptions" :key="option">
                             <option :value="option" x-text="option + 'm'"></option>
                         </template>
@@ -36,7 +37,7 @@
                 </div>
                 
                 <!-- Manual refresh -->
-                <button @click="refreshServices" :disabled="loading">
+                <button @click="refreshServices" :disabled="loading" title="Manually refresh service data now">
                     <span x-show="!loading">🔄 Refresh</span>
                     <span x-show="loading">Loading...</span>
                 </button>
@@ -76,22 +77,16 @@
                                 </div>
                             </td>
                             <td>
-<div class="instance-details">
-    <template x-for="(instance, index) in service.instances" 
-              :key="`${service.name}-${instance.address}-${index}`">
-        <div class="instance">
-            <span class="status-icon" 
-                  :class="getStatusClass(instance.current_status)"
-                  x-text="getStatusEmoji(instance.current_status) + ' '">
-            </span>
-            <span x-text="instance.address || 'Unknown address'"></span>
-            <template x-if="instance.port">
-                <span>:<span x-text="instance.port"></span></span>
-            </template>
-            <a :href="instance.url" target="_blank" x-show="instance.url">🔗</a>
-        </div>
-    </template>
-</div>
+                                <!-- Port-based links -->
+                                <div class="port-links">
+                                    <template x-for="url in service.port_urls" :key="url">
+                                        <div>
+                                            <a :href="url" target="_blank" title="Open service endpoint">
+                                                <span x-text="url"></span>
+                                            </a>
+                                        </div>
+                                    </template>
+                                </div>
                             </td>
                         </tr>
                     </template>
@@ -236,6 +231,12 @@ if (data.status === 'success') {
                         
                         const historyData = await response.json();
                         
+                        // Handle error response from API
+                        if (historyData.error) {
+                            console.warn(`No history data for ${serviceName}: ${historyData.error}`);
+                            return;
+                        }
+                        
                         // Process data for Chart.js
                         const timestamps = historyData.data.map(item => item.timestamp);
                         const values = historyData.data.map(item => {
@@ -318,8 +319,21 @@ getStatusEmoji(status) {
             gap: 8px;
         }
         .history-chart-container {
-            height: 60px;
-            width: 200px;
+            height: 120px; /* 100% larger */
+            width: 400px; /* 100% larger */
+        }
+        
+        .port-links {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .port-links a {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100%;
         }
     </style>
 </body>
